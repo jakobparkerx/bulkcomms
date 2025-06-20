@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
 
-st.title("XML Extractor from CSV")
+st.title("XML Data from CSV")
 
 # Define available XML tags to extract
 AVAILABLE_TAGS = ["StatusSMI", "OverallStatus", "Warnings", "DaysSinceLastComms"]
@@ -13,10 +13,12 @@ def extract_selected_tags(xml_str, selected_tags):
     try:
         root = ET.fromstring(xml_str)
         ns = {'ns': 'http://www.smartaccess.co.uk/SmartAccess'}
+
         for tag in selected_tags:
-            el = root.find(f'.//ns:{tag}', ns)  # ✅ Deep search to handle nesting
+            # Try to find tag anywhere in tree using XPath-like search
+            el = root.find(f".//ns:{tag}", ns)
             result[tag] = el.text if el is not None else ''
-    except Exception as e:
+    except Exception:
         for tag in selected_tags:
             result[tag] = ''
     return result
@@ -31,19 +33,36 @@ if uploaded_file:
     # Let user pick the column that contains XML
     column_name = st.selectbox("Select the column with XML content", df.columns)
 
-    # Let user pick which tags to extract
+    # Let user pick which XML tags to extract
     selected_tags = st.multiselect("Select XML fields to extract", AVAILABLE_TAGS, default=["StatusSMI"])
 
     if st.button("Extract Selected Fields"):
-        # Apply XML extraction
+        # Ensure the XML column is string type
         df[column_name] = df[column_name].astype(str)
+
+        # Extract XML tags into separate columns
         extracted_df = df[column_name].apply(lambda x: extract_selected_tags(x, selected_tags)).apply(pd.Series)
 
-        # Merge extracted columns back into original df
+        # Merge extracted columns back into the DataFrame
         df = pd.concat([df, extracted_df], axis=1)
 
-        st.write("### Extracted Data", df[[column_name] + selected_tags].head())
+        # Let user choose output columns
+        all_columns = df.columns.tolist()
+        selected_output_columns = st.multiselect(
+            "Select columns to include in the output CSV",
+            options=all_columns,
+            default=[column_name] + selected_tags  # Preselect relevant ones
+        )
 
-        # Allow CSV download
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Full Result CSV", data=csv, file_name="xml_extraction_output.csv", mime="text/csv")
+        # Display filtered table
+        st.write("### Extracted & Filtered Data", df[selected_output_columns].head())
+
+        # Create downloadable CSV
+        csv = df[selected_output_columns].to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download Selected Columns as CSV",
+            data=csv,
+            file_name="xml_extraction_output.csv",
+            mime="text/csv"
+        )
+
