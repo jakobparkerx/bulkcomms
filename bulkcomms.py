@@ -2,70 +2,83 @@ import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
 
-st.title("XML Field Extractor from CSV")
+st.title("Bulk XML Field Extractor")
 
-# Upload CSV
+# Function to detect possible XML tags in the first few rows
+def detect_xml_tags(xml_series, sample_size=10):
+    tags = set()
+    ns = {'ns': 'http://www.smartaccess.co.uk/SmartAccess'}
+
+    for xml_str in xml_series.dropna().astype(str).head(sample_size):
+        try:
+            root = ET.fromstring(xml_str)
+            for elem in root.iter():
+                tag = elem.tag
+                if '}' in tag:
+                    tag = tag.split('}', 1)[1]  # remove namespace
+                tags.add(tag)
+        except Exception:
+            continue
+    return sorted(tags)
+
+# Function to extract selected XML tags from a single XML string
+def extract_selected_tags(xml_str, selected_tags):
+    result = {}
+    try:
+        root = ET.fromstring(xml_str)
+        ns = {'ns': 'http://www.smartaccess.co.uk/SmartAccess'}
+        for tag in selected_tags:
+            el = root.find(f'.//ns:{tag}', ns)
+            result[tag] = el.text if el is not None else ''
+    except Exception:
+        for tag in selected_tags:
+            result[tag] = ''
+    return result
+
+# File uploader
 uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     st.write("### Preview of uploaded data", df.head())
 
-    # Try to auto-detect column with XML content
-    xml_column_guess = None
+    # Automatically detect the XML column
+    xml_column = None
     for col in df.columns:
-        if df[col].astype(str).str.startswith("<").sum() > 0:
-            xml_column_guess = col
+        sample = df[col].dropna().astype(str).head(5).tolist()
+        if all(s.strip().startswith("<?xml") or "<ClientResponse" in s for s in sample):
+            xml_column = col
             break
 
-    column_name = st.selectbox("Select the column with XML content", df.columns, index=df.columns.get_loc(xml_column_guess) if xml_column_guess else 0)
+    if not xml_column:
+        xml_column = st.selectbox("Could not auto-detect. Select XML column manually", df.columns)
 
-    # Try to auto-detect XML tags from first non-empty row
-    detected_tags = set()
-    try:
-        first_xml = str(df[column_name].dropna().iloc[0])
-        root = ET.fromstring(first_xml)
-        for elem in root.iter():
-            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            detected_tags.add(tag)
-    except Exception as e:
-        st.warning(f"Failed to auto-detect tags from sample row. Error: {e}")
+    st.write(f"Using column: `{xml_column}` for XML extraction")
 
-    # User selects which XML fields to extract
-    selected_tags = st.multiselect("Select XML fields to extract", sorted(detected_tags), default=[])
+    # Detect tags from sample XML
+    detected_tags = detect_xml_tags(df[xml_column])
 
-    # User selects final CSV fields (optional)
-    final_csv_fields = st.multiselect("Select columns to include in final CSV", df.columns.tolist() + list(detected_tags), default=[])
-
-    # XML extraction logic
-    def extract_selected_tags(xml_str, selected_tags):
-        result = {}
-        try:
-            root = ET.fromstring(xml_str)
-            ns = {}
-            if root.tag.startswith('{'):
-                uri = root.tag.split('}')[0].strip('{')
-                ns = {'ns': uri}
-            for tag in selected_tags:
-                el = root.find(f'.//ns:{tag}', ns) if ns else root.find(f'.//{tag}')
-                result[tag] = el.text if el is not None else ''
-        except Exception:
-            for tag in selected_tags:
-                result[tag] = ''
-        return result
+    # Combined dropdown to select both extracted XML fields and final CSV columns
+    all_possible_fields = df.columns.tolist() + detected_tags
+    selected_fields = st.multiselect(
+        "Select fields to extract from XML and include in final CSV",
+        options=all_possible_fields,
+        default=[],
+    )
 
     if st.button("Extract Selected Fields"):
-        df[column_name] = df[column_name].astype(str)
-        extracted_df = df[column_name].apply(lambda x: extract_selected_tags(x, selected_tags)).apply(pd.Series)
+        # Separate tags from static dataframe columns
+        selected_tags = [field for field in selected_fields if field in detected_tags]
+        final_csv_fields = selected_fields
 
-        # Merge extracted data
-        df = pd.concat([df, extracted_df], axis=1)
+        # Extract selected XML tags
+        if selected_tags:
+            df[xml_column] = df[xml_column].astype(str)
+            extracted_df = df[xml_column].apply(lambda x: extract_selected_tags(x, selected_tags)).apply(pd.Series)
+            df = pd.concat([df, extracted_df], axis=1)
 
-        # Determine which columns to show and export
-        output_columns = final_csv_fields if final_csv_fields else df.columns
-        st.write("### Extracted Data", df[output_columns].head())
-
-        # Download button
-        csv = df[output_columns].to_csv(index=False).encode("utf-8")
-        st.download_button("Download Full Result CSV", data=csv, file_name="xml_extraction_output.csv", mime="text/csv")
-
+        # Display and download
+        if final_csv_fields:
+            st.write("### Final Extracted Data", df[final_csv_fields].head())
+            csv = df[final_csv_fields].to_csv(index=False).encode("utf-8")
+            st.download_button("Download Full Result CSV", data=csv, file_name="xml_extraction_output.csv", mime="text/csv")
