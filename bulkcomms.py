@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
 
-st.title("Bulk XML Field Extractor from CSV")
+st.title("XML Extractor from CSV")
 
 # Upload CSV
 uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
