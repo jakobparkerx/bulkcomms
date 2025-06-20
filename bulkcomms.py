@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
 
-st.title("Bulk XML Field Extractor")
+st.title("Bulk XML Scrubber")
 
 # Function to detect possible XML tags in the first few rows
 def detect_xml_tags(xml_series, sample_size=10):
