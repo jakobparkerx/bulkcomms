@@ -73,9 +73,3 @@ if uploaded_file:
 
         csv = output_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Full Result CSV", data=csv, file_name="xml_extraction_output.csv", mime="text/csv")
-
-
-            csv = df[output_columns].to_csv(index=False).encode("utf-8")
-            st.download_button("Download Full Result CSV", data=csv, file_name="xml_extraction_output.csv", mime="text/csv")
-
-
